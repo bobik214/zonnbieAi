@@ -13,16 +13,30 @@ const config = {
     ADMIN_USERNAME: "tcpdog",
 
     // Модель по умолчанию
-    DEFAULT_MODEL: "google/gemma-3n-e4b-it:free",
+    DEFAULT_MODEL: "qwen/qwen3.6-plus:free",
 
     // Лучшие бесплатные модели OpenRouter (актуальные 2026)
     FREE_MODELS: [
-        { id: "google/gemma-3n-e4b-it:free", name: "✨ Gemma 3n (Google)" },
-        { id: "meta-llama/llama-3.3-70b-instruct:free", name: "🦙 Llama 3.3 70B" },
-        { id: "mistralai/mistral-small-3.1:free", name: "💨 Mistral Small 3.1" },
-        { id: "deepseek/deepseek-r1:free", name: "🔥 DeepSeek R1" },
-        { id: "qwen/qwen3-coder:free", name: "💻 Qwen3 Coder" },
-        { id: "google/gemma-3-12b-it:free", name: "🌟 Gemma 3 12B" },
+        {
+            id: "qwen/qwen3.6-plus:free",
+            name: "⭐ Qwen 3.6 Plus",
+            desc: "Лучшая модель — умная, быстрая, на русском"
+        },
+        {
+            id: "meta-llama/llama-3.3-70b-instruct:free",
+            name: "🧠 Llama 3.3 70B",
+            desc: "Мощная модель от Meta, много знаний"
+        },
+        {
+            id: "google/gemma-3n-e4b-it:free",
+            name: "💬 Gemma 3n",
+            desc: "Быстрая и лёгкая от Google"
+        },
+        {
+            id: "mistralai/mistral-small-3.1:free",
+            name: "⚡ Mistral Small 3.1",
+            desc: "Шустрая модель, хороша для чата"
+        },
     ],
 
     // Файл для хранения настроек пользователей
