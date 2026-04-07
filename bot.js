@@ -8,102 +8,74 @@ const config = require('./config');
 const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
 console.log('✅ Бот запущен...');
 
-// ==================== ХРАНИЛИЩЕ НАСТРОЕК ====================
+// ==================== ХРАНИЛИЩЕ ====================
 
-function loadUserSettings() {
-    const settingsFile = path.join(__dirname, config.USER_SETTINGS_FILE);
-    if (fs.existsSync(settingsFile)) {
-        return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    }
+function loadSettings() {
+    const f = path.join(__dirname, config.USER_SETTINGS_FILE);
+    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
     return {};
 }
 
-function saveUserSettings(settings) {
-    const settingsFile = path.join(__dirname, config.USER_SETTINGS_FILE);
-    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+function saveSettings(s) {
+    fs.writeFileSync(path.join(__dirname, config.USER_SETTINGS_FILE), JSON.stringify(s, null, 2), 'utf8');
 }
 
-function getUserModel(userId) {
-    const settings = loadUserSettings();
-    return settings[userId]?.model || config.DEFAULT_MODEL;
+function getUserModel(uid) {
+    return loadSettings()[uid]?.model || config.DEFAULT_MODEL;
 }
 
-function setUserModel(userId, model) {
-    const settings = loadUserSettings();
-    if (!settings[userId]) {
-        settings[userId] = {};
-    }
-    settings[userId].model = model;
-    saveUserSettings(settings);
+function setUserModel(uid, model) {
+    const s = loadSettings();
+    if (!s[uid]) s[uid] = {};
+    s[uid].model = model;
+    saveSettings(s);
+}
+
+function getModelInfo(id) {
+    return config.MODELS.find(m => m.id === id) || { name: id, desc: "Описание" };
 }
 
 function getAdminApiKey() {
-    const settings = loadUserSettings();
-    return settings.admin?.api_key || config.OPENROUTER_API_KEY;
+    const s = loadSettings();
+    return s.admin?.api_key || config.GOOGLE_API_KEY;
 }
 
-function setAdminApiKey(apiKey) {
-    const settings = loadUserSettings();
-    if (!settings.admin) {
-        settings.admin = {};
-    }
-    settings.admin.api_key = apiKey;
-    saveUserSettings(settings);
+function setAdminApiKey(key) {
+    const s = loadSettings();
+    if (!s.admin) s.admin = {};
+    s.admin.api_key = key;
+    saveSettings(s);
 }
 
-function getModelInfo(modelId) {
-    return config.FREE_MODELS.find(m => m.id === modelId) || { name: modelId, desc: "Описание недоступно" };
-}
-
-// Состояния пользователей
+// Состояния
 const userStates = {};
-
-function setUserState(userId, state, data = {}) {
-    userStates[userId] = { state, data };
-}
-
-function getUserState(userId) {
-    return userStates[userId] || { state: null, data: {} };
-}
-
-function clearUserState(userId) {
-    delete userStates[userId];
-}
+function setUserState(uid, state, data = {}) { userStates[uid] = { state, data }; }
+function getUserState(uid) { return userStates[uid] || { state: null, data: {} }; }
+function clearUserState(uid) { delete userStates[uid]; }
 
 // ==================== КЛАВИАТУРЫ ====================
 
-function getMainKeyboard(username, currentModel) {
-    const keyboard = {
+function mainKB(username, modelId) {
+    const kb = {
         inline_keyboard: [
-            [
-                { text: "💬 Задать вопрос", callback_data: "prompt_help" }
-            ],
-            [
-                { text: "🤖 Модель", callback_data: "select_model" },
-                { text: "📖 Помощь", callback_data: "help" }
-            ],
+            [{ text: "💬 Задать вопрос", callback_data: "prompt_help" }],
+            [{ text: "🤖 Модель", callback_data: "select_model" },
+             { text: "📖 Помощь", callback_data: "help" }],
         ]
     };
-    
     if (username === config.ADMIN_USERNAME) {
-        keyboard.inline_keyboard.push([
-            { text: "⚙️ Админ", callback_data: "admin" }
-        ]);
+        kb.inline_keyboard.push([{ text: "⚙️ Админ", callback_data: "admin" }]);
     }
-    
-    return keyboard;
+    return kb;
 }
 
-function getModelsKeyboard() {
-    const buttons = config.FREE_MODELS.map(model => [
-        { text: model.name, callback_data: `model_${model.id}` }
-    ]);
-    buttons.push([{ text: "⬅️ Назад", callback_data: "back_to_main" }]);
-    
-    return { inline_keyboard: buttons };
+function modelsKB() {
+    const btns = config.MODELS.map(m => [{ text: m.name, callback_data: `model_${m.id}` }]);
+    btns.push([{ text: "⬅️ Назад", callback_data: "back_to_main" }]);
+    return { inline_keyboard: btns };
 }
 
-function getAdminKeyboard() {
+function adminKB() {
     return {
         inline_keyboard: [
             [{ text: "🔑 Сменить API ключ", callback_data: "admin_change_api" }],
@@ -113,261 +85,69 @@ function getAdminKeyboard() {
     };
 }
 
-// ==================== КОМАНДЫ ====================
-
-bot.onText(/\/start/, (msg) => {
-    const username = msg.from.username;
-    const currentModel = getUserModel(msg.from.id);
-    const modelInfo = getModelInfo(currentModel);
-    
-    bot.sendMessage(msg.chat.id,
-        `👋 Привет, ${msg.from.first_name}!\n\n` +
-        `🧠 Я твой карманный помощник с ИИ.\n` +
-        `⚡ Сейчас: *${modelInfo.name}*\n\n` +
-        `💬 Просто напиши вопрос — и я помогу!\n` +
-        `👇 Кнопки ниже:`,
-        { 
-            reply_markup: getMainKeyboard(username, currentModel),
-            parse_mode: "Markdown"
-        }
-    );
-});
-
-bot.onText(/\/help/, (msg) => {
-    sendHelpMessage(msg);
-});
-
-bot.onText(/\/cancel/, (msg) => {
-    clearUserState(msg.from.id);
-    bot.sendMessage(msg.chat.id, "❌ Отменено.", {
-        reply_markup: getMainKeyboard(msg.from.username, getUserModel(msg.from.id))
-    });
-});
-
-function sendHelpMessage(msg) {
-    const chatType = msg.chat.type;
-    const isPrivate = chatType === 'private';
-    
-    const instructionText = isPrivate 
-        ? "💬 В личных сообщениях — просто напиши вопрос"
-        : "💬 В чатах — начни с точки: `.вопрос`";
-    
-    const helpText = 
-        `📖 Справка:\n\n` +
-        `${instructionText}\n\n` +
-        `🔹 *Модель* — выбор нейросети\n` +
-        `🔹 *Помощь* — эта справка\n` +
-        `🔹 *Админ* — панель управления\n\n` +
-        `💡 Примеры:\n` +
-        `• Сколько лап у паука?\n` +
-        `• Столица Франции?\n` +
-        `• Помоги с кодом на Python`;
-
-    bot.sendMessage(msg.chat.id, helpText, {
-        reply_markup: getMainKeyboard(msg.from.username, getUserModel(msg.from.id)),
-        parse_mode: "Markdown"
-    });
+function errorKB(uid) {
+    const mi = getModelInfo(getUserModel(uid));
+    return {
+        inline_keyboard: [
+            [{ text: `🔄 Сменить модель (${mi.name})`, callback_data: "select_model" }],
+            [{ text: "🔁 Повторить", callback_data: "retry_question" }],
+            [{ text: "⬅️ В меню", callback_data: "back_to_main" }],
+        ]
+    };
 }
 
-// ==================== CALLBACK (КНОПКИ) ====================
+// ==================== ЗАПРОС К GOOGLE AI ====================
 
-bot.on('callback_query', async (callbackQuery) => {
-    const msg = callbackQuery.message;
-    const chatId = msg.chat.id;
-    const messageId = msg.message_id;
-    const data = callbackQuery.data;
-    const userId = callbackQuery.from.id;
-    const username = callbackQuery.from.username;
-
-    try {
-        switch (data) {
-            case 'prompt_help':
-                const isPrivate = msg.chat.type === 'private';
-                const tipText = isPrivate
-                    ? `✏️ Напиши любой вопрос в чат!\n\nНапример:\n• Сколько лап у паука?\n• Расскажи о космосе`
-                    : `✏️ Напиши *.вопрос* (с точкой в начале)!\n\nНапример:\n• \`.сколько лап у паука?\`\n• \`.расскажи о космосе\``;
-                
-                await bot.deleteMessage(chatId, messageId);
-                await bot.sendMessage(chatId, tipText, {
-                    reply_markup: getMainKeyboard(username, getUserModel(userId)),
-                    parse_mode: "Markdown"
-                });
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Подсказка" });
-                break;
-
-            case 'help':
-                await bot.deleteMessage(chatId, messageId);
-                sendHelpMessage({ chat: msg.chat, from: callbackQuery.from, chat: msg.chat });
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Справка" });
-                break;
-
-            case 'select_model':
-                await bot.deleteMessage(chatId, messageId);
-                
-                // Формируем текст с описаниями моделей
-                const modelsText = config.FREE_MODELS.map((m, i) => 
-                    `${i + 1}. *${m.name}*\n   ${m.desc}`
-                ).join('\n\n');
-                
-                await bot.sendMessage(chatId, `🤖 Доступные модели:\n\n${modelsText}\n\nВыбери кнопку ниже:`, {
-                    reply_markup: getModelsKeyboard(),
-                    parse_mode: "Markdown"
-                });
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Выбор модели" });
-                break;
-
-            case 'back_to_main':
-                await bot.deleteMessage(chatId, messageId).catch(() => {});
-                await bot.sendMessage(chatId, "🏠 Главное меню:", {
-                    reply_markup: getMainKeyboard(username, getUserModel(userId))
-                });
-                bot.answerCallbackQuery(callbackQuery.id, { text: "В меню" });
-                break;
-
-            case 'admin':
-                if (username !== config.ADMIN_USERNAME) {
-                    bot.answerCallbackQuery(callbackQuery.id, { text: "Доступ запрещён!", show_alert: true });
-                    return;
-                }
-                await bot.deleteMessage(chatId, messageId);
-                await bot.sendMessage(chatId, "⚙️ Админ-панель:", {
-                    reply_markup: getAdminKeyboard()
-                });
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Админ" });
-                break;
-
-            case 'admin_show_api':
-                if (username !== config.ADMIN_USERNAME) {
-                    bot.answerCallbackQuery(callbackQuery.id, { text: "Доступ запрещён!", show_alert: true });
-                    return;
-                }
-                const apiKey = getAdminApiKey();
-                const maskedKey = apiKey.length > 15 ? `${apiKey.slice(0, 10)}...${apiKey.slice(-5)}` : apiKey;
-                bot.answerCallbackQuery(callbackQuery.id, { text: "API ключ" });
-                await bot.sendMessage(chatId, `🔑 API ключ:\n\`${maskedKey}\``, { parse_mode: "Markdown" });
-                break;
-
-            case 'admin_change_api':
-                if (username !== config.ADMIN_USERNAME) {
-                    bot.answerCallbackQuery(callbackQuery.id, { text: "Доступ запрещён!", show_alert: true });
-                    return;
-                }
-                await bot.deleteMessage(chatId, messageId);
-                await bot.sendMessage(chatId, "🔑 Отправь новый API ключ OpenRouter:\n(/cancel — отмена)");
-                setUserState(userId, 'waiting_for_api_key');
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Введи ключ" });
-                break;
-
-            case 'retry_question':
-                const lastQuestion = userStates[userId]?.lastQuestion;
-                if (!lastQuestion) {
-                    bot.answerCallbackQuery(callbackQuery.id, { text: "Нет последнего вопроса", show_alert: true });
-                    return;
-                }
-                
-                await bot.deleteMessage(chatId, messageId);
-                const retryThinking = await bot.sendMessage(chatId, "⏳ Повтор...");
-                const retryResult = await askOpenRouter(lastQuestion, chatId, retryThinking.message_id, username, userId);
-                
-                try {
-                    if (retryResult.success) {
-                        await bot.deleteMessage(chatId, retryThinking.message_id);
-                        await bot.sendMessage(chatId, retryResult.text, {
-                            reply_markup: getMainKeyboard(username, getUserModel(userId))
-                        });
-                    } else {
-                        await bot.editMessageText(retryResult.text, {
-                            chat_id: chatId,
-                            message_id: retryThinking.message_id,
-                            reply_markup: getErrorKeyboard(userId)
-                        });
-                    }
-                } catch (e) {
-                    bot.sendMessage(chatId, retryResult.text);
-                }
-                bot.answerCallbackQuery(callbackQuery.id, { text: "Повтор" });
-                break;
-
-            default:
-                if (data.startsWith('model_')) {
-                    const modelId = data.replace('model_', '');
-                    setUserModel(userId, modelId);
-                    
-                    const model = config.FREE_MODELS.find(m => m.id === modelId);
-                    const modelName = model ? model.name : modelId;
-                    
-                    await bot.deleteMessage(chatId, messageId).catch(() => {});
-                    
-                    await bot.sendMessage(chatId, `✅ Выбрано: *${modelName}*\n${model?.desc || ''}\n\nТеперь задай вопрос!`, {
-                        reply_markup: getMainKeyboard(username, modelId),
-                        parse_mode: "Markdown"
-                    });
-                    bot.answerCallbackQuery(callbackQuery.id, { text: `Выбрано: ${model.name}` });
-                }
-                break;
-        }
-    } catch (error) {
-        console.error('Callback error:', error);
-        bot.answerCallbackQuery(callbackQuery.id, { text: "Ошибка" });
-    }
-});
-
-// ==================== ЗАПРОС К OPENROUTER ====================
-
-function askOpenRouter(question, chatId, thinkingMsgId, username, userId) {
-    return new Promise((resolve, reject) => {
-        const userModel = getUserModel(userId);
+function askGoogle(question, userId) {
+    return new Promise((resolve) => {
+        const model = getUserModel(userId);
         const apiKey = getAdminApiKey();
         
         const postData = JSON.stringify({
-            model: userModel,
-            messages: [
-                { role: 'system', content: 'Ты полезный помощник. Отвечай на русском языке, кратко и по делу.' },
-                { role: 'user', content: question },
-            ],
-            temperature: 0.7,
-            max_tokens: 1000,
+            contents: [{
+                parts: [{ text: question }]
+            }],
+            systemInstruction: {
+                parts: [{ text: "Ты полезный помощник. Отвечай на русском языке, кратко и по делу." }]
+            },
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 2048,
+            }
         });
 
-        const url = new URL(config.OPENROUTER_API_URL);
+        const reqUrl = `${config.GOOGLE_API_URL}/${model}:generateContent?key=${apiKey}`;
+        const url = new URL(reqUrl);
+
         const options = {
             hostname: url.hostname,
             port: 443,
-            path: url.pathname,
+            path: url.pathname + url.search,
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
                 'Content-Length': Buffer.byteLength(postData),
-                'HTTP-Referer': config.OPENROUTER_SITE_URL,
-                'X-Title': 'AI Assistant Bot',
             }
         };
 
         const req = https.request(options, (res) => {
-            let responseData = '';
-            
-            res.on('data', (chunk) => { responseData += chunk; });
-
+            let body = '';
+            res.on('data', c => body += c);
             res.on('end', () => {
                 try {
-                    const parsedData = JSON.parse(responseData);
+                    const data = JSON.parse(body);
                     
-                    if (res.statusCode === 200) {
-                        if (parsedData.choices && parsedData.choices[0]?.message?.content) {
-                            resolve({ success: true, text: parsedData.choices[0].message.content });
-                        } else {
-                            resolve({ success: false, text: "Пустой ответ. Переформулируй вопрос." });
-                        }
-                    } else if (res.statusCode === 401) {
-                        resolve({ success: false, text: "❌ Неверный API ключ. Напиши админу." });
+                    if (res.statusCode === 200 && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        resolve({ success: true, text: data.candidates[0].content.parts[0].text });
                     } else if (res.statusCode === 429) {
                         resolve({ success: false, text: "⏰ Лимит запросов. Подожди минуту." });
+                    } else if (res.statusCode === 403) {
+                        resolve({ success: false, text: "❌ Неверный API ключ. Напиши админу." });
                     } else if (res.statusCode === 404) {
-                        resolve({ success: false, text: `❌ Модель недоступна.\n\nНажми 🔄 Сменить модель и выбери другую.` });
+                        resolve({ success: false, text: `❌ Модель "${model}" не найдена.\n\nВыбери другую модель.` });
                     } else {
-                        const errorMsg = parsedData.error?.message || `Код: ${res.statusCode}`;
-                        resolve({ success: false, text: `❌ Ошибка:\n${errorMsg}\n\nПопробуй другую модель.` });
+                        const err = data.error?.message || `Код: ${res.statusCode}`;
+                        resolve({ success: false, text: `❌ Ошибка:\n${err}` });
                     }
                 } catch (e) {
                     resolve({ success: false, text: `Ошибка обработки: ${e.message}` });
@@ -375,153 +155,225 @@ function askOpenRouter(question, chatId, thinkingMsgId, username, userId) {
             });
         });
 
-        req.on('error', (error) => {
-            resolve({ success: false, text: `❌ Ошибка сети: ${error.message}` });
-        });
-
-        req.setTimeout(60000, () => {
-            req.abort();
-            resolve({ success: false, text: "⏰ Время ожидания истекло." });
-        });
-
+        req.on('error', (e) => resolve({ success: false, text: `❌ Ошибка сети: ${e.message}` }));
+        req.setTimeout(60000, () => { req.abort(); resolve({ success: false, text: "⏰ Время истекло." }); });
         req.write(postData);
         req.end();
     });
 }
 
-// ==================== КЛАВИАТУРА ОШИБКИ ====================
+// ==================== КОМАНДЫ ====================
 
-function getErrorKeyboard(userId) {
-    const currentModel = getUserModel(userId);
-    const modelInfo = getModelInfo(currentModel);
-    
-    return {
-        inline_keyboard: [
-            [{ text: `🔄 Сменить модель (${modelInfo.name})`, callback_data: "select_model" }],
-            [
-                { text: "❓ Помощь", callback_data: "help" },
-                { text: "🔁 Повторить", callback_data: "retry_question" }
-            ],
-            [{ text: "⬅️ В меню", callback_data: "back_to_main" }],
-        ]
-    };
+bot.onText(/\/start/, (msg) => {
+    const model = getUserModel(msg.from.id);
+    const mi = getModelInfo(model);
+    bot.sendMessage(msg.chat.id,
+        `👋 Привет, ${msg.from.first_name}!\n\n` +
+        `🧠 Я твой карманный помощник.\n` +
+        `⚡ Сейчас: *${mi.name}*\n\n` +
+        `💬 Напиши вопрос — и я помогу!\n` +
+        `👇 Кнопки ниже:`,
+        { reply_markup: mainKB(msg.from.username, model), parse_mode: "Markdown" }
+    );
+});
+
+bot.onText(/\/help/, (msg) => sendHelp(msg));
+
+bot.onText(/\/cancel/, (msg) => {
+    clearUserState(msg.from.id);
+    bot.sendMessage(msg.chat.id, "❌ Отменено.", {
+        reply_markup: mainKB(msg.from.username, getUserModel(msg.from.id))
+    });
+});
+
+function sendHelp(msg) {
+    const isPrivate = msg.chat.type === 'private';
+    const tip = isPrivate
+        ? "💬 В личке — просто напиши вопрос"
+        : "💬 В чатах — начни с точки: `.вопрос`";
+
+    bot.sendMessage(msg.chat.id,
+        `📖 Справка:\n\n` +
+        `${tip}\n\n` +
+        `🔹 *Модель* — выбор нейросети\n` +
+        `🔹 *Помощь* — эта справка\n\n` +
+        `💡 Примеры:\n` +
+        `• Сколько лап у паука?\n` +
+        `• Столица Франции?\n` +
+        `• Помоги с кодом на Python`,
+        { reply_markup: mainKB(msg.from.username, getUserModel(msg.from.id)), parse_mode: "Markdown" }
+    );
 }
+
+// ==================== КНОПКИ ====================
+
+bot.on('callback_query', async (cq) => {
+    const msg = cq.message;
+    const chatId = msg.chat.id;
+    const mid = msg.message_id;
+    const data = cq.data;
+    const uid = cq.from.id;
+    const uname = cq.from.username;
+
+    try {
+        switch (data) {
+            case 'prompt_help': {
+                const isP = msg.chat.type === 'private';
+                const txt = isP
+                    ? `✏️ Напиши любой вопрос в чат!\n\nПримеры:\n• Сколько лап у паука?\n• Расскажи о космосе\n• Помоги с задачей`
+                    : `✏️ Напиши *.вопрос* (с точкой)!\n\nПримеры:\n• \`.сколько лап у паука?\`\n• \`.расскажи о космосе\``;
+                await bot.deleteMessage(chatId, mid);
+                await bot.sendMessage(chatId, txt, { reply_markup: mainKB(uname, getUserModel(uid)), parse_mode: "Markdown" });
+                bot.answerCallbackQuery(cq.id, { text: "Подсказка" });
+                break;
+            }
+
+            case 'help':
+                await bot.deleteMessage(chatId, mid);
+                sendHelp({ chat: msg.chat, from: cq.from });
+                bot.answerCallbackQuery(cq.id, { text: "Справка" });
+                break;
+
+            case 'select_model': {
+                await bot.deleteMessage(chatId, mid);
+                const list = config.MODELS.map((m, i) => `*${m.name}*\n${m.desc}`).join('\n\n');
+                await bot.sendMessage(chatId, `🤖 Модели:\n\n${list}\n\nВыбери кнопку:`, {
+                    reply_markup: modelsKB(), parse_mode: "Markdown"
+                });
+                bot.answerCallbackQuery(cq.id, { text: "Выбор модели" });
+                break;
+            }
+
+            case 'back_to_main':
+                await bot.deleteMessage(chatId, mid).catch(() => {});
+                await bot.sendMessage(chatId, "🏠 Меню:", { reply_markup: mainKB(uname, getUserModel(uid)) });
+                bot.answerCallbackQuery(cq.id, { text: "В меню" });
+                break;
+
+            case 'admin':
+                if (uname !== config.ADMIN_USERNAME) {
+                    bot.answerCallbackQuery(cq.id, { text: "Доступ запрещён!", show_alert: true });
+                    return;
+                }
+                await bot.deleteMessage(chatId, mid);
+                await bot.sendMessage(chatId, "⚙️ Админ-панель:", { reply_markup: adminKB() });
+                bot.answerCallbackQuery(cq.id, { text: "Админ" });
+                break;
+
+            case 'admin_show_api':
+                if (uname !== config.ADMIN_USERNAME) { bot.answerCallbackQuery(cq.id, { text: "Нет доступа!", show_alert: true }); return; }
+                const k = getAdminApiKey();
+                const mk = k.length > 15 ? `${k.slice(0,8)}...${k.slice(-4)}` : k;
+                bot.answerCallbackQuery(cq.id, { text: "API ключ" });
+                await bot.sendMessage(chatId, `🔑 API:\n\`${mk}\``, { parse_mode: "Markdown" });
+                break;
+
+            case 'admin_change_api':
+                if (uname !== config.ADMIN_USERNAME) { bot.answerCallbackQuery(cq.id, { text: "Нет доступа!", show_alert: true }); return; }
+                await bot.deleteMessage(chatId, mid);
+                await bot.sendMessage(chatId, "🔑 Отправь новый API ключ:\n(/cancel — отмена)");
+                setUserState(uid, 'wait_api');
+                bot.answerCallbackQuery(cq.id, { text: "Введи ключ" });
+                break;
+
+            case 'retry_question': {
+                const lq = userStates[uid]?.lastQuestion;
+                if (!lq) { bot.answerCallbackQuery(cq.id, { text: "Нет вопроса", show_alert: true }); return; }
+                await bot.deleteMessage(chatId, mid);
+                const th = await bot.sendMessage(chatId, "⏳ Повтор...");
+                const res = await askGoogle(lq, uid);
+                if (res.success) {
+                    await bot.deleteMessage(chatId, th.message_id);
+                    await bot.sendMessage(chatId, res.text, { reply_markup: mainKB(uname, getUserModel(uid)) });
+                } else {
+                    await bot.editMessageText(res.text, { chat_id: chatId, message_id: th.message_id, reply_markup: errorKB(uid) });
+                }
+                bot.answerCallbackQuery(cq.id, { text: "Повтор" });
+                break;
+            }
+
+            default:
+                if (data.startsWith('model_')) {
+                    const mid2 = data.replace('model_', '');
+                    setUserModel(uid, mid2);
+                    const m = config.MODELS.find(x => x.id === mid2);
+                    await bot.deleteMessage(chatId, mid).catch(() => {});
+                    await bot.sendMessage(chatId, `✅ Выбрано: *${m.name}*\n${m.desc}\n\nЗадавай вопрос!`, {
+                        reply_markup: mainKB(uname, mid2), parse_mode: "Markdown"
+                    });
+                    bot.answerCallbackQuery(cq.id, { text: `Выбрано: ${m.name}` });
+                }
+        }
+    } catch (e) {
+        console.error('CB error:', e);
+    }
+});
 
 // ==================== СООБЩЕНИЯ ====================
 
 bot.on('message', async (msg) => {
-    if (msg.text && msg.text.startsWith('/')) return;
+    if (msg.text?.startsWith('/')) return;
 
-    // Состояние ожидания API ключа
-    const userState = getUserState(msg.from.id);
-    if (userState.state === 'waiting_for_api_key') {
-        const newApiKey = msg.text.trim();
-        if (!newApiKey) {
-            bot.sendMessage(msg.chat.id, "🔑 Ключ пустой. Повтори или /cancel.");
-            return;
-        }
-        if (!newApiKey.startsWith('sk-or-v1-') && !newApiKey.startsWith('sk-')) {
-            bot.sendMessage(msg.chat.id, "⚠️ Ключ не похож на OpenRouter. Установить? (Да/Нет)");
-            setUserState(msg.from.id, 'confirm_invalid_api', { tempApiKey: newApiKey });
-            return;
-        }
-        setAdminApiKey(newApiKey);
+    // Ожидание API ключа
+    const st = getUserState(msg.from.id);
+    if (st.state === 'wait_api') {
+        const key = msg.text.trim();
+        if (!key) { bot.sendMessage(msg.chat.id, "Пусто. Повтори или /cancel."); return; }
+        setAdminApiKey(key);
         clearUserState(msg.from.id);
-        const maskedKey = `${newApiKey.slice(0, 10)}...${newApiKey.slice(-5)}`;
-        bot.sendMessage(msg.chat.id, `✅ API ключ обновлён!\n\`${maskedKey}\``, {
-            parse_mode: "Markdown",
-            reply_markup: getMainKeyboard(msg.from.username, getUserModel(msg.from.id))
+        const mk = `${key.slice(0,8)}...${key.slice(-4)}`;
+        bot.sendMessage(msg.chat.id, `✅ API обновлён!\n\`${mk}\``, {
+            parse_mode: "Markdown", reply_markup: mainKB(msg.from.username, getUserModel(msg.from.id))
         });
-        return;
-    }
-
-    if (userState.state === 'confirm_invalid_api') {
-        if (msg.text.toLowerCase() === 'да') {
-            setAdminApiKey(userState.data.tempApiKey);
-            clearUserState(msg.from.id);
-            const maskedKey = `${userState.data.tempApiKey.slice(0, 10)}...${userState.data.tempApiKey.slice(-5)}`;
-            bot.sendMessage(msg.chat.id, `✅ API ключ обновлён!\n\`${maskedKey}\``, {
-                parse_mode: "Markdown",
-                reply_markup: getMainKeyboard(msg.from.username, getUserModel(msg.from.id))
-            });
-        } else {
-            clearUserState(msg.from.id);
-            bot.sendMessage(msg.chat.id, "❌ Отменено.");
-        }
         return;
     }
 
     if (!msg.text) return;
 
-    const userText = msg.text.trim();
+    const text = msg.text.trim();
     const isPrivate = msg.chat.type === 'private';
-    
-    let questionText = userText;
-    
-    // В чатах - триггер на точку
+    let question = text;
+
     if (!isPrivate) {
-        if (!userText.startsWith('.')) return;
-        questionText = userText.substring(1).trim();
+        if (!text.startsWith('.')) return;
+        question = text.substring(1).trim();
     }
-    
-    if (!questionText) {
-        if (!isPrivate) {
-            bot.sendMessage(msg.chat.id, "✏️ Напиши `.вопрос` после точки", { parse_mode: "Markdown" });
-        }
+
+    if (!question) {
+        if (!isPrivate) bot.sendMessage(msg.chat.id, "✏️ `.вопрос` после точки", { parse_mode: "Markdown" });
         return;
     }
 
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
+    const uid = msg.from.id;
+    userStates[uid] = userStates[uid] || {};
+    userStates[uid].lastQuestion = question;
 
-    let thinkingMsg;
-    try {
-        thinkingMsg = await bot.sendMessage(chatId, "⏳ Думаю...");
-    } catch (e) {
-        return;
-    }
-
-    userStates[userId] = userStates[userId] || {};
-    userStates[userId].lastQuestion = questionText;
-
-    const result = await askOpenRouter(questionText, chatId, thinkingMsg.message_id, msg.from.username, userId);
+    const th = await bot.sendMessage(msg.chat.id, "⏳ Думаю...");
+    const result = await askGoogle(question, uid);
 
     try {
         if (result.success) {
-            await bot.deleteMessage(chatId, thinkingMsg.message_id);
-            await bot.sendMessage(chatId, result.text, {
-                reply_markup: getMainKeyboard(msg.from.username, getUserModel(userId))
+            await bot.deleteMessage(msg.chat.id, th.message_id);
+            await bot.sendMessage(msg.chat.id, result.text, {
+                reply_markup: mainKB(msg.from.username, getUserModel(uid))
             });
         } else {
             try {
                 await bot.editMessageText(result.text, {
-                    chat_id: chatId,
-                    message_id: thinkingMsg.message_id,
-                    reply_markup: getErrorKeyboard(userId)
+                    chat_id: msg.chat.id, message_id: th.message_id, reply_markup: errorKB(uid)
                 });
-            } catch (e) {
-                await bot.sendMessage(chatId, result.text, {
-                    reply_markup: getErrorKeyboard(userId)
-                });
+            } catch {
+                await bot.sendMessage(msg.chat.id, result.text, { reply_markup: errorKB(uid) });
             }
         }
     } catch (e) {
-        bot.sendMessage(chatId, result.text);
+        bot.sendMessage(msg.chat.id, result.text);
     }
 });
 
 // ==================== ОШИБКИ ====================
 
-bot.on('polling_error', (error) => {
-    console.error('Polling error:', error.message);
-});
+bot.on('polling_error', (e) => console.error('Polling:', e.message));
+bot.on('error', (e) => console.error('Bot:', e.message));
 
-bot.on('error', (error) => {
-    console.error('Bot error:', error.message);
-});
-
-process.on('SIGINT', () => {
-    console.log('\n⏹️ Остановка...');
-    bot.stopPolling();
-    process.exit(0);
-});
+process.on('SIGINT', () => { bot.stopPolling(); process.exit(0); });
