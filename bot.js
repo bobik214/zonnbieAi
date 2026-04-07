@@ -208,7 +208,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 const aboutMsg = await bot.sendMessage(chatId, 
                     `🧠 *ИИ-Ассистент*\n\n` +
                     `🔹 Бесплатные нейросети через OpenRouter\n` +
-                    `🔹 4 модели на выбор\n` +
+                    `🔹 6 моделей на выбор\n` +
                     `🔹 Работает 24/7\n\n` +
                     `⚡ Быстро • Бесплатно • Удобно`,
                     { 
@@ -219,8 +219,45 @@ bot.on('callback_query', async (callbackQuery) => {
                 bot.answerCallbackQuery(callbackQuery.id, { text: "О боте" });
                 break;
 
-            case 'select_model':
+            case 'retry_question':
+                // Повторить последний вопрос
+                const lastQuestion = userStates[userId]?.lastQuestion;
+                if (!lastQuestion) {
+                    bot.answerCallbackQuery(callbackQuery.id, { text: "Нет последнего вопроса", show_alert: true });
+                    return;
+                }
+                
                 await bot.deleteMessage(chatId, messageId);
+                const retryThinking = await bot.sendMessage(chatId, "⏳ Повторная попытка...");
+                
+                const retryResult = await askOpenRouter(lastQuestion, chatId, retryThinking.message_id, username, userId);
+                
+                try {
+                    if (retryResult.success) {
+                        await bot.deleteMessage(chatId, retryThinking.message_id);
+                        await bot.sendMessage(chatId, retryResult.text, {
+                            reply_markup: getMainKeyboard(username, getUserModel(userId))
+                        });
+                    } else {
+                        await bot.editMessageText(retryResult.text, {
+                            chat_id: chatId,
+                            message_id: retryThinking.message_id,
+                            reply_markup: {
+                                inline_keyboard: [
+                                    [{ text: "🔄 Выбрать другую модель", callback_data: "select_model" }],
+                                    [{ text: "⬅️ В меню", callback_data: "back_to_main" }],
+                                ]
+                            }
+                        });
+                    }
+                } catch (e) {
+                    bot.sendMessage(chatId, retryResult.text);
+                }
+                bot.answerCallbackQuery(callbackQuery.id, { text: "Повтор" });
+                break;
+
+            case 'select_model':
+                await bot.deleteMessage(chatId, messageId).catch(() => {});
                 const modelMsg = await bot.sendMessage(chatId, "🤖 Выберите нейросеть:", {
                     reply_markup: getModelsKeyboard()
                 });
@@ -279,8 +316,10 @@ bot.on('callback_query', async (callbackQuery) => {
                     const model = config.FREE_MODELS.find(m => m.id === modelId);
                     const modelName = model ? model.name : modelId;
                     
-                    await bot.deleteMessage(chatId, messageId);
-                    const confirmMsg = await bot.sendMessage(chatId, `✅ Модель изменена на:\n*${modelName}*`, {
+                    // Удаляем и сообщение об ошибке если было
+                    await bot.deleteMessage(chatId, messageId).catch(() => {});
+                    
+                    const confirmMsg = await bot.sendMessage(chatId, `✅ Модель изменена на:\n*${modelName}*\n\nТеперь попробуй задать вопрос!`, {
                         reply_markup: getMainKeyboard(username, modelId),
                         parse_mode: "Markdown"
                     });
@@ -483,14 +522,44 @@ bot.on('message', async (msg) => {
                 reply_markup: getMainKeyboard(username, currentModel)
             });
         } else {
-            await bot.editMessageText(result.text, {
-                chat_id: chatId,
-                message_id: thinkingMsg.message_id
-            });
+            // Ошибка - показываем кнопки для быстрого выбора модели
+            const username = msg.from.username;
+            const currentModel = getUserModel(userId);
+            const currentModelName = getModelName(currentModel);
+            
+            const errorKeyboard = {
+                inline_keyboard: [
+                    [{ text: `🔄 Сменить модель (сейчас: ${currentModelName})`, callback_data: "select_model" }],
+                    [
+                        { text: "❓ Помощь", callback_data: "help" },
+                        { text: "🔁 Повторить", callback_data: "retry_question" }
+                    ],
+                    [{ text: "⬅️ В главное меню", callback_data: "back_to_main" }],
+                ]
+            };
+            
+            // Сохраняем последний вопрос для кнопки "Повторить"
+            userStates[userId] = userStates[userId] || {};
+            userStates[userId].lastQuestion = questionText;
+            
+            try {
+                await bot.editMessageText(result.text, {
+                    chat_id: chatId,
+                    message_id: thinkingMsg.message_id,
+                    reply_markup: errorKeyboard
+                });
+            } catch (e) {
+                await bot.sendMessage(chatId, result.text, {
+                    reply_markup: errorKeyboard
+                });
+            }
         }
     } catch (e) {
         console.error('Error sending response:', e);
-        bot.sendMessage(chatId, result.text);
+        const username = msg.from.username;
+        bot.sendMessage(chatId, result.text, {
+            reply_markup: getMainKeyboard(username, getUserModel(userId))
+        });
     }
 });
 
