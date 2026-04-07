@@ -1,0 +1,17 @@
+{
+  "name": "ai-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram AI-бот с OpenRouter API",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "node-fetch": "^3.3.2"
+  },
+  "keywords": ["telegram", "bot", "ai", "openrouter"],
+  "author": "",
+  "license": "MIT"
+}
