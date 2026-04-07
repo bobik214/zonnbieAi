@@ -226,19 +226,6 @@ bot.on('callback_query', async (cq) => {
 
     try {
         switch (data) {
-            case 'model_flash':
-            case 'model_pro': {
-                const mid2 = data.replace('model_', '');
-                setUserModel(uid, mid2);
-                const m = config.MODELS.find(x => x.id === mid2);
-                await bot.deleteMessage(chatId, mid).catch(() => {});
-                await bot.sendMessage(chatId, `✅ Выбрано: *${m.name}*`, {
-                    reply_markup: replyKB(isAdmin), parse_mode: "Markdown"
-                });
-                bot.answerCallbackQuery(cq.id, { text: `Выбрано: ${m.name}` });
-                break;
-            }
-
             case 'admin':
                 if (!isAdmin) { bot.answerCallbackQuery(cq.id, { text: "Нет доступа!", show_alert: true }); return; }
                 await bot.deleteMessage(chatId, mid);
@@ -268,7 +255,7 @@ bot.on('callback_query', async (cq) => {
                 const res = await askGoogle(lq, uid);
                 if (res.success) {
                     await bot.deleteMessage(chatId, th.message_id);
-                    await bot.sendMessage(chatId, res.text, { reply_markup: replyKB() });
+                    await bot.sendMessage(chatId, res.text, { reply_markup: replyKB(isAdmin) });
                 } else {
                     try {
                         await bot.editMessageText(res.text, { chat_id: chatId, message_id: th.message_id });
@@ -279,6 +266,19 @@ bot.on('callback_query', async (cq) => {
                 bot.answerCallbackQuery(cq.id, { text: "Повтор" });
                 break;
             }
+
+            default:
+                if (data.startsWith('model_')) {
+                    const mid2 = data.replace('model_', '');
+                    setUserModel(uid, mid2);
+                    const m = config.MODELS.find(x => x.id === mid2);
+                    await bot.deleteMessage(chatId, mid).catch(() => {});
+                    await bot.sendMessage(chatId, `✅ Выбрано: *${m.name}*`, {
+                        reply_markup: replyKB(isAdmin), parse_mode: "Markdown"
+                    });
+                    bot.answerCallbackQuery(cq.id, { text: `Выбрано: ${m.name}` });
+                }
+                break;
         }
     } catch (e) {
         console.error('CB error:', e);
