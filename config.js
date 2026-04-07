@@ -15,14 +15,12 @@ const config = {
     // Модель по умолчанию
     DEFAULT_MODEL: "google/gemma-2-9b-it:free",
 
-    // Бесплатные модели OpenRouter
+    // Лучшие бесплатные модели OpenRouter
     FREE_MODELS: [
-        { id: "google/gemma-2-9b-it:free", name: "Gemma 2 9B (Google)" },
-        { id: "meta-llama/llama-3-8b-instruct:free", name: "Llama 3 8B (Meta)" },
-        { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B" },
-        { id: "openchat/openchat-7b:free", name: "OpenChat 7B" },
-        { id: "teknium/openhermes-2.5-mistral-7b:free", name: "OpenHermes 2.5" },
-        { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B" },
+        { id: "google/gemma-2-9b-it:free", name: "✨ Gemma 2 (Google)" },
+        { id: "meta-llama/llama-3.1-8b-instruct:free", name: "🦙 Llama 3.1 (Meta)" },
+        { id: "mistralai/mistral-7b-instruct:free", name: "💨 Mistral 7B" },
+        { id: "qwen/qwen-2-7b-instruct:free", name: "🐉 Qwen 2 (Alibaba)" },
     ],
 
     // Файл для хранения настроек пользователей
