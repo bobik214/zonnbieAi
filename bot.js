@@ -69,6 +69,20 @@ function mainKB(username, modelId) {
     return kb;
 }
 
+// Постоянная нижняя панель
+function replyKB() {
+    return {
+        keyboard: [
+            [{ text: "🤖 Модель" }, { text: "📖 Помощь" }],
+            [{ text: "💬 Задать вопрос" }],
+        ],
+        resize_keyboard: true,
+        persistent: true,
+        one_time_keyboard: false,
+        input_field_placeholder: "Напиши вопрос или выбери кнопку..."
+    };
+}
+
 function modelsKB() {
     const btns = config.MODELS.map(m => [{ text: m.name, callback_data: `model_${m.id}` }]);
     btns.push([{ text: "⬅️ Назад", callback_data: "back_to_main" }]);
@@ -172,7 +186,7 @@ bot.onText(/\/start/, (msg) => {
         `🧠 Я твой карманный помощник.\n` +
         `⚡ Сейчас: *${mi.name}*\n\n` +
         `💬 Напиши вопрос — и я помогу!\n` +
-        `👇 Кнопки ниже:`,
+        `👇 Кнопки внизу всегда доступны:`,
         { reply_markup: mainKB(msg.from.username, model), parse_mode: "Markdown" }
     );
 });
@@ -201,11 +215,36 @@ function sendHelp(msg) {
         `• Сколько лап у паука?\n` +
         `• Столица Франции?\n` +
         `• Помоги с кодом на Python`,
-        { reply_markup: mainKB(msg.from.username, getUserModel(msg.from.id)), parse_mode: "Markdown" }
+        { reply_markup: replyKB(), parse_mode: "Markdown" }
     );
 }
 
-// ==================== КНОПКИ ====================
+// ==================== ТЕКСТОВЫЕ КНОПКИ (нижняя панель) ====================
+
+bot.on('text', async (msg) => {
+    if (msg.text?.startsWith('/')) return;
+    if (msg.text === '🤖 Модель') {
+        const list = config.MODELS.map((m, i) => `*${m.name}*\n${m.desc}`).join('\n\n');
+        await bot.sendMessage(msg.chat.id, `🤖 Модели:\n\n${list}\n\nВыбери:`, {
+            reply_markup: modelsKB(), parse_mode: "Markdown"
+        });
+        return;
+    }
+    if (msg.text === '📖 Помощь') {
+        sendHelp(msg);
+        return;
+    }
+    if (msg.text === '💬 Задать вопрос') {
+        const isP = msg.chat.type === 'private';
+        const txt = isP
+            ? `✏️ Напиши любой вопрос!\n\nПримеры:\n• Сколько лап у паука?\n• Расскажи о космосе`
+            : `✏️ Напиши *.вопрос* (с точкой)!\n\nПример:\n• \`.сколько лап у паука?\``;
+        await bot.sendMessage(msg.chat.id, txt, { reply_markup: replyKB(), parse_mode: "Markdown" });
+        return;
+    }
+});
+
+// ==================== INLINE КНОПКИ ====================
 
 bot.on('callback_query', async (cq) => {
     const msg = cq.message;
@@ -246,7 +285,7 @@ bot.on('callback_query', async (cq) => {
 
             case 'back_to_main':
                 await bot.deleteMessage(chatId, mid).catch(() => {});
-                await bot.sendMessage(chatId, "🏠 Меню:", { reply_markup: mainKB(uname, getUserModel(uid)) });
+                await bot.sendMessage(chatId, "🏠 Меню:", { reply_markup: replyKB() });
                 bot.answerCallbackQuery(cq.id, { text: "В меню" });
                 break;
 
@@ -299,7 +338,7 @@ bot.on('callback_query', async (cq) => {
                     const m = config.MODELS.find(x => x.id === mid2);
                     await bot.deleteMessage(chatId, mid).catch(() => {});
                     await bot.sendMessage(chatId, `✅ Выбрано: *${m.name}*\n${m.desc}\n\nЗадавай вопрос!`, {
-                        reply_markup: mainKB(uname, mid2), parse_mode: "Markdown"
+                        reply_markup: replyKB(), parse_mode: "Markdown"
                     });
                     bot.answerCallbackQuery(cq.id, { text: `Выбрано: ${m.name}` });
                 }
@@ -323,7 +362,7 @@ bot.on('message', async (msg) => {
         clearUserState(msg.from.id);
         const mk = `${key.slice(0,8)}...${key.slice(-4)}`;
         bot.sendMessage(msg.chat.id, `✅ API обновлён!\n\`${mk}\``, {
-            parse_mode: "Markdown", reply_markup: mainKB(msg.from.username, getUserModel(msg.from.id))
+            parse_mode: "Markdown", reply_markup: replyKB()
         });
         return;
     }
@@ -355,7 +394,7 @@ bot.on('message', async (msg) => {
         if (result.success) {
             await bot.deleteMessage(msg.chat.id, th.message_id);
             await bot.sendMessage(msg.chat.id, result.text, {
-                reply_markup: mainKB(msg.from.username, getUserModel(uid))
+                reply_markup: replyKB()
             });
         } else {
             try {
