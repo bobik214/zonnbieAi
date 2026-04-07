@@ -53,15 +53,20 @@ function clearUserState(uid) { delete userStates[uid]; }
 
 // ==================== КЛАВИАТУРЫ ====================
 
-function replyKB() {
-    return {
+function replyKB(isAdmin) {
+    const kb = {
         keyboard: [
             [{ text: "🤖 Модель" }, { text: "📖 Помощь" }],
             [{ text: "💬 Задать вопрос" }],
+            [{ text: "🏠 Меню" }],
         ],
         resize_keyboard: true,
         one_time_keyboard: false
     };
+    if (isAdmin) {
+        kb.keyboard.push([{ text: "⚙️ Админ" }]);
+    }
+    return kb;
 }
 
 function modelsKB() {
@@ -131,22 +136,25 @@ function askGoogle(question, userId) {
 bot.onText(/\/start/, (msg) => {
     const model = getUserModel(msg.from.id);
     const mi = getModelInfo(model);
+    const isAdmin = msg.from.username === config.ADMIN_USERNAME;
     bot.sendMessage(msg.chat.id,
         `👋 Привет, ${msg.from.first_name}!\n\n` +
         `🧠 Я твой карманный помощник.\n` +
         `⚡ Модель: *${mi.name}*\n\n` +
         `Напиши вопрос — и я помогу!`,
-        { reply_markup: replyKB(), parse_mode: "Markdown" }
+        { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" }
     );
 });
 
 bot.onText(/\/help/, (msg) => sendHelp(msg));
 bot.onText(/\/cancel/, (msg) => {
     clearUserState(msg.from.id);
-    bot.sendMessage(msg.chat.id, "❌ Отменено.", { reply_markup: replyKB() });
+    const isAdmin = msg.from.username === config.ADMIN_USERNAME;
+    bot.sendMessage(msg.chat.id, "❌ Отменено.", { reply_markup: replyKB(isAdmin) });
 });
 
 function sendHelp(msg) {
+    const isAdmin = msg.from.username === config.ADMIN_USERNAME;
     bot.sendMessage(msg.chat.id,
         `📖 *Как пользоваться*\n\n` +
         `💬 *В личке* — просто напиши вопрос\n` +
@@ -156,7 +164,7 @@ function sendHelp(msg) {
         `• Столица Франции?\n` +
         `• Помоги с кодом на Python\n\n` +
         `🚀 Просто напиши — и я помогу!`,
-        { reply_markup: replyKB(), parse_mode: "Markdown" }
+        { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" }
     );
 }
 
@@ -164,30 +172,43 @@ function sendHelp(msg) {
 
 bot.on('text', async (msg) => {
     if (msg.text?.startsWith('/')) return;
-    
+    const isAdmin = msg.from.username === config.ADMIN_USERNAME;
+
     if (msg.text === '🤖 Модель') {
-        const isAdmin = msg.from.username === config.ADMIN_USERNAME;
-        const kb = modelsKB();
-        if (isAdmin) {
-            kb.inline_keyboard.push([{ text: "⚙️ Админ-панель", callback_data: "admin" }]);
-        }
         await bot.sendMessage(msg.chat.id, `🤖 *Выбери модель:*\n\n` +
             config.MODELS.map(m => `*${m.name}*\n${m.desc}`).join('\n'),
-            { reply_markup: kb, parse_mode: "Markdown" });
+            { reply_markup: modelsKB(), parse_mode: "Markdown" });
         return;
     }
-    
+
     if (msg.text === '📖 Помощь') {
         sendHelp(msg);
         return;
     }
-    
+
     if (msg.text === '💬 Задать вопрос') {
         const isP = msg.chat.type === 'private';
         const txt = isP
             ? `✏️ Напиши вопрос сюда!\n\nПример: Сколько лап у паука?`
             : `✏️ Напиши *.вопрос* (с точкой)!\n\nПример: \`.сколько лап у паука?\``;
-        await bot.sendMessage(msg.chat.id, txt, { reply_markup: replyKB(), parse_mode: "Markdown" });
+        await bot.sendMessage(msg.chat.id, txt, { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
+        return;
+    }
+
+    if (msg.text === '🏠 Меню') {
+        const model = getUserModel(msg.from.id);
+        const mi = getModelInfo(model);
+        await bot.sendMessage(msg.chat.id,
+            `🏠 Главное меню\n\n` +
+            `⚡ Модель: *${mi.name}*\n\n` +
+            `Выбери действие:`,
+            { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
+        return;
+    }
+
+    if (msg.text === '⚙️ Админ') {
+        if (!isAdmin) return;
+        await bot.sendMessage(msg.chat.id, "⚙️ Админ-панель:", { reply_markup: adminKB() });
         return;
     }
 });
@@ -212,7 +233,7 @@ bot.on('callback_query', async (cq) => {
                 const m = config.MODELS.find(x => x.id === mid2);
                 await bot.deleteMessage(chatId, mid).catch(() => {});
                 await bot.sendMessage(chatId, `✅ Выбрано: *${m.name}*`, {
-                    reply_markup: replyKB(), parse_mode: "Markdown"
+                    reply_markup: replyKB(isAdmin), parse_mode: "Markdown"
                 });
                 bot.answerCallbackQuery(cq.id, { text: `Выбрано: ${m.name}` });
                 break;
@@ -278,7 +299,7 @@ bot.on('message', async (msg) => {
         if (!key) { bot.sendMessage(msg.chat.id, "Пусто. /cancel"); return; }
         setAdminApiKey(key);
         clearUserState(msg.from.id);
-        bot.sendMessage(msg.chat.id, `✅ API ключ обновлён!`, { reply_markup: replyKB() });
+        bot.sendMessage(msg.chat.id, `✅ API ключ обновлён!`, { reply_markup: replyKB(isAdmin) });
         return;
     }
 
@@ -308,7 +329,7 @@ bot.on('message', async (msg) => {
     try {
         if (result.success) {
             await bot.deleteMessage(msg.chat.id, th.message_id);
-            await bot.sendMessage(msg.chat.id, result.text, { reply_markup: replyKB() });
+            await bot.sendMessage(msg.chat.id, result.text, { reply_markup: replyKB(msg.from.username === config.ADMIN_USERNAME) });
         } else {
             try {
                 await bot.editMessageText(result.text, {
