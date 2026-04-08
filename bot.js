@@ -5,6 +5,10 @@ const path = require('path');
 const config = require('./config');
 
 const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
+
+// Время запуска бота (чтобы не отвечать на старые сообщения)
+const BOT_START_TIME = Date.now();
+
 console.log('✅ Бот запущен...');
 
 // ==================== ХРАНИЛИЩЕ ====================
@@ -53,20 +57,32 @@ function clearUserState(uid) { delete userStates[uid]; }
 
 // ==================== КЛАВИАТУРЫ ====================
 
+// Главное меню (первая кнопка - Главное меню)
 function replyKB(isAdmin) {
     const kb = {
         keyboard: [
-            [{ text: "🤖 Модель" }, { text: "📖 Помощь" }],
-            [{ text: "💬 Задать вопрос" }],
-            [{ text: "🏠 Меню" }],
+            [{ text: "🏠 Главное меню" }],
+            [{ text: "💬 Задать вопрос" }, { text: "🤖 Выбрать модель" }],
+            [{ text: "📖 Помощь" }],
         ],
         resize_keyboard: true,
         one_time_keyboard: false
     };
     if (isAdmin) {
-        kb.keyboard.push([{ text: "⚙️ Админ" }]);
+        kb.keyboard.push([{ text: "⚙️ Админ-панель" }]);
     }
     return kb;
+}
+
+// Клавиатура главного меню (inline)
+function mainMenuKB() {
+    return {
+        inline_keyboard: [
+            [{ text: "💬 Задать вопрос", callback_data: "menu_ask" }],
+            [{ text: "🤖 Выбрать модель", callback_data: "menu_models" }],
+            [{ text: "📖 Помощь", callback_data: "menu_help" }],
+        ]
+    };
 }
 
 function modelsKB() {
@@ -174,7 +190,27 @@ bot.on('text', async (msg) => {
     if (msg.text?.startsWith('/')) return;
     const isAdmin = msg.from.username === config.ADMIN_USERNAME;
 
-    if (msg.text === '🤖 Модель') {
+    if (msg.text === '🏠 Главное меню') {
+        const model = getUserModel(msg.from.id);
+        const mi = getModelInfo(model);
+        await bot.sendMessage(msg.chat.id,
+            `🏠 *Главное меню*\n\n` +
+            `🧠 Текущая модель: *${mi.name}*\n\n` +
+            `Выбери действие:`,
+            { reply_markup: mainMenuKB(), parse_mode: "Markdown" });
+        return;
+    }
+
+    if (msg.text === '💬 Задать вопрос') {
+        const isP = msg.chat.type === 'private';
+        const txt = isP
+            ? `✏️ Напиши свой вопрос!\n\nПример: Сколько лап у паука?`
+            : `✏️ Напиши *.вопрос* (с точкой в начале)!\n\nПример: \`.сколько лап у паука?\``;
+        await bot.sendMessage(msg.chat.id, txt, { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
+        return;
+    }
+
+    if (msg.text === '🤖 Выбрать модель') {
         await bot.sendMessage(msg.chat.id, `🤖 *Выбери модель:*\n\n` +
             config.MODELS.map(m => `*${m.name}*\n${m.desc}`).join('\n'),
             { reply_markup: modelsKB(), parse_mode: "Markdown" });
@@ -186,27 +222,7 @@ bot.on('text', async (msg) => {
         return;
     }
 
-    if (msg.text === '💬 Задать вопрос') {
-        const isP = msg.chat.type === 'private';
-        const txt = isP
-            ? `✏️ Напиши вопрос сюда!\n\nПример: Сколько лап у паука?`
-            : `✏️ Напиши *.вопрос* (с точкой)!\n\nПример: \`.сколько лап у паука?\``;
-        await bot.sendMessage(msg.chat.id, txt, { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
-        return;
-    }
-
-    if (msg.text === '🏠 Меню') {
-        const model = getUserModel(msg.from.id);
-        const mi = getModelInfo(model);
-        await bot.sendMessage(msg.chat.id,
-            `🏠 Главное меню\n\n` +
-            `⚡ Модель: *${mi.name}*\n\n` +
-            `Выбери действие:`,
-            { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
-        return;
-    }
-
-    if (msg.text === '⚙️ Админ') {
+    if (msg.text === '⚙️ Админ-панель') {
         if (!isAdmin) return;
         await bot.sendMessage(msg.chat.id, "⚙️ Админ-панель:", { reply_markup: adminKB() });
         return;
@@ -226,6 +242,39 @@ bot.on('callback_query', async (cq) => {
 
     try {
         switch (data) {
+            case 'menu_ask':
+                await bot.deleteMessage(chatId, mid);
+                const isP = msg.chat.type === 'private';
+                const askTxt = isP
+                    ? `✏️ Напиши свой вопрос!\n\nПример: Сколько лап у паука?`
+                    : `✏️ Напиши *.вопрос* (с точкой в начале)!\n\nПример: \`.сколько лап у паука?\``;
+                await bot.sendMessage(chatId, askTxt, { parse_mode: "Markdown" });
+                bot.answerCallbackQuery(cq.id);
+                break;
+
+            case 'menu_models':
+                await bot.deleteMessage(chatId, mid);
+                await bot.sendMessage(chatId, `🤖 *Выбери модель:*\n\n` +
+                    config.MODELS.map(m => `*${m.name}*\n${m.desc}`).join('\n'),
+                    { reply_markup: modelsKB(), parse_mode: "Markdown" });
+                bot.answerCallbackQuery(cq.id);
+                break;
+
+            case 'menu_help':
+                await bot.deleteMessage(chatId, mid);
+                await bot.sendMessage(chatId,
+                    `📖 *Как пользоваться*\n\n` +
+                    `💬 *В личке* — просто напиши вопрос\n` +
+                    `👥 *В чате* — начни с точки: .вопрос\n\n` +
+                    `*Примеры:*\n` +
+                    `• Сколько лап у паука?\n` +
+                    `• Столица Франции?\n` +
+                    `• Помоги с кодом на Python\n\n` +
+                    `🚀 Просто напиши — и я помогу!`,
+                    { reply_markup: replyKB(isAdmin), parse_mode: "Markdown" });
+                bot.answerCallbackQuery(cq.id);
+                break;
+
             case 'admin':
                 if (!isAdmin) { bot.answerCallbackQuery(cq.id, { text: "Нет доступа!", show_alert: true }); return; }
                 await bot.deleteMessage(chatId, mid);
@@ -289,6 +338,11 @@ bot.on('callback_query', async (cq) => {
 
 bot.on('message', async (msg) => {
     if (msg.text?.startsWith('/')) return;
+
+    // Не отвечать на сообщения, отправленные до запуска бота
+    if (msg.date * 1000 < BOT_START_TIME - 5000) {
+        return;
+    }
 
     const st = getUserState(msg.from.id);
     if (st.state === 'wait_api') {
