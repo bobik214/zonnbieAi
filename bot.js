@@ -105,7 +105,9 @@ function askGoogle(question, userId) {
     return new Promise((resolve) => {
         const model = getUserModel(userId);
         const apiKey = getAdminApiKey();
-        
+
+        console.log(`🔍 Запрос: модель=${model}, ключ=${apiKey ? apiKey.substring(0, 8) + '...' : 'НЕ УСТАНОВЛЕН'}`);
+
         const postData = JSON.stringify({
             contents: [{ parts: [{ text: question }] }],
             systemInstruction: { parts: [{ text: "Ты полезный помощник. Отвечай на русском языке, кратко и по делу." }] },
@@ -127,20 +129,28 @@ function askGoogle(question, userId) {
             res.on('end', () => {
                 try {
                     const data = JSON.parse(body);
+                    console.log(`📡 Ответ API: статус=${res.statusCode}`, JSON.stringify(data).substring(0, 200));
+
                     if (res.statusCode === 200 && data.candidates?.[0]?.content?.parts?.[0]?.text) {
                         resolve({ success: true, text: data.candidates[0].content.parts[0].text });
                     } else if (res.statusCode === 429) {
                         resolve({ success: false, text: "⏰ Много запросов. Подожди минуту." });
                     } else {
-                        resolve({ success: false, text: "⚠️ Что-то пошло не так. Попробуй позже или нажми «Задать вопрос» снова." });
+                        const errMsg = data.error?.message || 'Неизвестная ошибка';
+                        console.error(`❌ API Error: ${res.statusCode} - ${errMsg}`);
+                        resolve({ success: false, text: `⚠️ Ошибка API: ${errMsg}` });
                     }
                 } catch (e) {
-                    resolve({ success: false, text: "⚠️ Ошибка. Попробуй позже." });
+                    console.error('❌ Parse error:', e.message);
+                    resolve({ success: false, text: "⚠️ Ошибка обработки ответа." });
                 }
             });
         });
 
-        req.on('error', (e) => resolve({ success: false, text: "⚠️ Ошибка сети." }));
+        req.on('error', (e) => {
+            console.error('❌ Network error:', e.message);
+            resolve({ success: false, text: "⚠️ Ошибка сети." });
+        });
         req.setTimeout(60000, () => { req.abort(); resolve({ success: false, text: "⏰ Долго думаю..." }); });
         req.write(postData);
         req.end();
@@ -400,7 +410,22 @@ bot.on('message', async (msg) => {
 
 // ==================== ОШИБКИ ====================
 
-bot.on('polling_error', (e) => console.error('Polling:', e.message));
+bot.on('polling_error', (e) => {
+    if (!e.message.includes('409')) {
+        console.error('Polling:', e.message);
+    }
+});
 bot.on('error', (e) => console.error('Bot:', e.message));
 
-process.on('SIGINT', () => { bot.stopPolling(); process.exit(0); });
+// Graceful shutdown для Render
+process.on('SIGINT', () => {
+    console.log('⏹️ SIGINT — останавливаю бота...');
+    bot.stopPolling();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('⏹️ SIGTERM — останавливаю бота...');
+    bot.stopPolling();
+    process.exit(0);
+});
